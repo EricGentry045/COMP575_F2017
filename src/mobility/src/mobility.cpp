@@ -37,6 +37,102 @@ string rover_name;
 char host[128];
 bool is_published_name = false;
 
+class Rover
+{
+public:
+    Rover(string roverName, float x, float y, float theta) {
+        // constructor 1
+        name = roverName;
+        X(x);
+        Y(y);
+        Theta(theta);
+    }
+    Rover(string roverName, pose p) {
+        name = roverName;
+        Pose(p);
+    }
+
+    // input functions
+    void X(float x) {location.x = x;}
+    void Y(float y) {location.y = y;}
+    void Theta(float theta) {location.theta = theta;}
+    void Pose(pose p) {X(p.x); Y(p.y); Theta(p.theta);}
+
+    // output functions
+    inline float X(void) {return location.x;}
+    inline float Y(void) {return location.y;}
+    inline float Theta(void) {return location.theta;}
+    inline pose Pose(void) {return location;}
+    inline string Name(void) {return name;}
+
+    bool isRoverClose(Rover otherRover, float distance) {
+        // compute distance between two points
+        // formula is sqrt((x1-x2)^2 + (y1-y2)^2)
+        //
+        // fastest method for computing distance is...
+        // - to avoid local variables (use inline functions)
+        // - to avoid doing a square root (using distance squared)
+        // - to avoid using other libraries (like pow())
+        return (X() - otherRover.X() * X() - otherRover.X()) +
+               (Y() - otherRover.Y() * Y() - otherRover.Y())
+               <= (distance * distance);
+    }
+
+private:
+    string name;
+    pose location;
+};
+
+class Rovers
+{
+public:
+    void addRover(string name, float x, float y, float theta) {
+        // check to make sure it is not already here
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if ((*currentRover).Name() == name) {
+                // found a match!
+
+                // update settings
+                (*currentRover).X(x);
+                (*currentRover).Y(y);
+                (*currentRover).Theta(theta);
+
+                // stop iterating and return
+                return;
+            }
+        }
+
+        // add it
+        Rover newRover(name, x, y, theta);
+        theRovers.push_back(newRover);
+    }
+
+    float calculateAverageBearing() {
+        // NOTE: this function works almost always, except the case where
+        //       all rover thetas cancel each other out.
+        //       We are ignoring this case to for simplicity sake and it
+        //       should rarely (if ever) happen.
+        int roverCount = theRovers.size();
+        switch(roverCount) {
+            case 0:
+                return 0.0;
+            case 1:
+                return theRovers.front().Theta();
+            default:
+                float x_part = 0.0;
+                float y_part = 0.0;
+                for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+                    x_part += cos((*currentRover).Theta());
+                    y_part += sin((*currentRover).Theta());
+                }
+                return atan2(y_part/roverCount, x_part/roverCount);
+        }
+    }
+
+private:
+    std::vector<Rover> theRovers;
+};
+
 
 int simulation_mode = 0;
 float mobility_loop_time_step = 0.1;
@@ -171,12 +267,11 @@ void mobilityStateMachine(const ros::TimerEvent &)
             break;
         }
         }
-
     }
     else
     { // mode is NOT auto
 
-        // publish current state for the operator to seerotational_controller
+        // publish current state for the operator to see rotational_controller
         std::stringstream converter;
         converter <<"CURRENT MODE: " << simulation_mode;
 
@@ -297,4 +392,6 @@ void messageHandler(const std_msgs::String::ConstPtr& message)
 
 void poseHandler(const std_msgs::String::ConstPtr& message)
 {
+    string msg = message->data.c_str();
+    cout << "Eric's Message: " << msg << endl;
 }
