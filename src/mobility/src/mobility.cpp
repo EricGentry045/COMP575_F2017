@@ -106,11 +106,13 @@ public:
         Rover newRover(name, x, y, theta);
         theRovers.push_back(newRover);
     }
+    inline void addRover(Rover r) { addRover(r.Name(), r.X(), r.Y(), r.Theta()); }
+    inline void updateRover(string name, float x, float y, float theta) { addRover(name, x, y, theta); }
 
     float calculateAverageBearing() {
         // NOTE: this function works almost always, except the case where
         //       all rover thetas cancel each other out.
-        //       We are ignoring this case to for simplicity sake and it
+        //       We are ignoring this case for simplicity sake and it
         //       should rarely (if ever) happen.
         int roverCount = theRovers.size();
         switch(roverCount) {
@@ -129,9 +131,34 @@ public:
         }
     }
 
+    float calculateAverageNeighborBearing(float x, float y) {
+        // make a fake rover from x and y
+        Rover centerPoint("centerPoint", x, y, 0.0);
+
+        int roverCount = 0;
+        float x_part = 0.0;
+        float y_part = 0.0;
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if (centerPoint.isRoverClose((*currentRover), 2.0)) {
+                x_part += cos((*currentRover).Theta());
+                y_part += sin((*currentRover).Theta());
+                roverCount++;
+            }
+        }
+
+        switch(roverCount) {
+            case 0:
+                return 0.0;
+            case 1:
+                return theRovers.front().Theta();
+            default:
+                return atan2(y_part/roverCount, x_part/roverCount);
+        }
+    }
+
 private:
     std::vector<Rover> theRovers;
-};
+} all_rovers;
 
 
 int simulation_mode = 0;
@@ -157,6 +184,8 @@ ros::Publisher angular_publisher;
 ros::Publisher messagePublish;
 ros::Publisher posePublish;
 ros::Publisher debug_publisher;
+ros::Publisher global_average_heading_publisher;
+ros::Publisher local_average_heading_publisher;
 
 //Subscribers
 ros::Subscriber joySubscriber;
@@ -167,6 +196,8 @@ ros::Subscriber odometrySubscriber;
 
 ros::Subscriber messageSubscriber;
 ros::Subscriber poseSubscriber;
+ros::Subscriber globalAverageHeadingSubscriber;
+ros::Subscriber localAverageHeadingSubscriber;
 
 //Timers
 ros::Timer stateMachineTimer;
@@ -190,6 +221,8 @@ void publishStatusTimerEventHandler(const ros::TimerEvent &event);
 void killSwitchTimerEventHandler(const ros::TimerEvent &event);
 void messageHandler(const std_msgs::String::ConstPtr &message);
 void poseHandler(const std_msgs::String::ConstPtr &message);
+void globalAverageHeadingHandler(const std_msgs::String::ConstPtr &message);
+void localAverageHeadingHandler(const std_msgs::String::ConstPtr &message);
 
 int main(int argc, char **argv)
 {
@@ -220,6 +253,8 @@ int main(int argc, char **argv)
     odometrySubscriber = mNH.subscribe((rover_name + "/odom/ekf"), 10, odometryHandler);
     messageSubscriber = mNH.subscribe(("messages"), 10, messageHandler);
     poseSubscriber = mNH.subscribe(("poses"), 10, poseHandler);
+    globalAverageHeadingSubscriber = mNH.subscribe(("globalAverageHeading"), 10, globalAverageHeadingHandler);
+    localAverageHeadingSubscriber = mNH.subscribe(("localAverageHeading"), 10, localAverageHeadingHandler);
 
     status_publisher = mNH.advertise<std_msgs::String>((rover_name + "/status"), 1, true);
     velocityPublish = mNH.advertise<geometry_msgs::Twist>((rover_name + "/velocity"), 10);
@@ -233,6 +268,8 @@ int main(int argc, char **argv)
     debug_publisher = mNH.advertise<std_msgs::String>("/debug", 1, true);
     messagePublish = mNH.advertise<std_msgs::String>(("messages"), 10 , true);
     posePublish = mNH.advertise<std_msgs::String>(("poses"), 10 , true);
+    global_average_heading_publisher = mNH.advertise<std_msgs::String>(("globalAverageHeading"), 10 , true);
+    local_average_heading_publisher = mNH.advertise<std_msgs::String>(("localAverageHeading"), 10 , true);
 
     ros::spin();
     return EXIT_SUCCESS;
@@ -278,8 +315,8 @@ void mobilityStateMachine(const ros::TimerEvent &)
         state_machine_msg.data = "WAITING, " + converter.str();
     }
 
-    std:stringstream rover_info;
-    rover_info << rover_name << ", ";
+    std::stringstream rover_info;
+    rover_info << rover_name << " - ";
     rover_info << current_location.x << ", ";
     rover_info << current_location.y << ", ";
     rover_info << current_location.theta;
@@ -392,6 +429,34 @@ void messageHandler(const std_msgs::String::ConstPtr& message)
 
 void poseHandler(const std_msgs::String::ConstPtr& message)
 {
-    string msg = message->data.c_str();
-    cout << "Eric's Message: " << msg << endl;
+    // parsing strings using c++ std:: sucks, so using a much simpler, but older method...
+    char name[32];
+    float x,y,theta = 0.0;
+    sscanf(message->data.c_str(), "%31s - %f, %f, %f", name, &x, &y, &theta);
+    //ROS_INFO_STREAM( "ERIC: " << name << " " << x << " " << y << " " << theta);
+
+    // update the rover's information
+    all_rovers.updateRover(name, x, y, theta);
+
+    // now publish the global heading
+    std_msgs::String globalAverageHeading_msg;
+    std::stringstream globalInfo;
+    globalInfo << "Global Average Heading:" << all_rovers.calculateAverageBearing();
+    globalAverageHeading_msg.data = globalInfo.str();
+    global_average_heading_publisher.publish(globalAverageHeading_msg);
+
+    // now publish the local headings
+    std_msgs::String localAverageHeading_msg;
+    std::stringstream localInfo;
+    localInfo << "Local Average Heading (" << name << "): " << all_rovers.calculateAverageNeighborBearing(x, y);
+    localAverageHeading_msg.data = localInfo.str();
+    local_average_heading_publisher.publish(localAverageHeading_msg);
+}
+
+void globalAverageHeadingHandler(const std_msgs::String::ConstPtr& message)
+{
+}
+
+void localAverageHeadingHandler(const std_msgs::String::ConstPtr& message)
+{
 }
