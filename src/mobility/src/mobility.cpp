@@ -295,6 +295,16 @@ void mobilityStateMachine(const ros::TimerEvent &)
             state_machine_msg.data = "TRANSLATING";//, " + converter.str();
             float angular_velocity = 0.2;
             float linear_velocity = 0.1;
+
+            // calculate the adjusted angular velocity we want to use
+            float current_theta = current_location.theta;
+            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(current_location.x, current_location.y);
+            float tuning_constant = 0.07;
+            float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
+
+            // now use the new angle and turn off forward motion
+            angular_velocity = adjusted_angular_velocity;
+            linear_velocity = 0.0;
             setVelocity(linear_velocity, angular_velocity);
             break;
         }
@@ -412,6 +422,7 @@ void killSwitchTimerEventHandler(const ros::TimerEvent &t)
 {
     // No movement commands for killSwitchTime seconds so stop the rover
     setVelocity(0.0, 0.0);
+
     double current_time = ros::Time::now().toSec();
     ROS_INFO("In mobility.cpp:: killSwitchTimerEventHander(): Movement input timeout. Stopping the rover at %6.4f.",
              current_time);
