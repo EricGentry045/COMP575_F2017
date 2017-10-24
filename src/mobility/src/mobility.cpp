@@ -298,7 +298,8 @@ void mobilityStateMachine(const ros::TimerEvent &)
 
             // calculate the adjusted angular velocity we want to use
             float current_theta = current_location.theta;
-            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(current_location.x, current_location.y);
+            //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(current_location.x, current_location.y);
+            float adjust_to_theta = all_rovers.calculateAverageBearing();
             float tuning_constant = 0.07;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
