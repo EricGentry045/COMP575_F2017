@@ -59,13 +59,13 @@ public:
     void Pose(pose p) {X(p.x); Y(p.y); Theta(p.theta);}
 
     // output functions
-    inline float X(void) {return location.x;}
-    inline float Y(void) {return location.y;}
-    inline float Theta(void) {return location.theta;}
-    inline pose Pose(void) {return location;}
-    inline string Name(void) {return name;}
+    inline float X(void) const {return location.x;}
+    inline float Y(void) const {return location.y;}
+    inline float Theta(void) const {return location.theta;}
+    inline pose Pose(void) const {return location;}
+    inline string Name(void) const {return name;}
 
-    bool isRoverClose(Rover otherRover, float distance) {
+    bool isRoverClose(Rover otherRover, float distance) const {
         // compute distance between two points
         // formula is sqrt((x1-x2)^2 + (y1-y2)^2)
         //
@@ -131,15 +131,12 @@ public:
         }
     }
 
-    float calculateAverageNeighborBearing(float x, float y) {
-        // make a fake rover from x and y
-        Rover centerPoint("centerPoint", x, y, 0.0);
-
+    float calculateAverageNeighborBearing(const Rover& centerPointRover) {
         int roverCount = 0;
         float x_part = 0.0;
         float y_part = 0.0;
         for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
-            if (centerPoint.isRoverClose((*currentRover), 2.0)) {
+            if (centerPointRover.isRoverClose((*currentRover), 2.0)) {
                 x_part += cos((*currentRover).Theta());
                 y_part += sin((*currentRover).Theta());
                 roverCount++;
@@ -150,7 +147,7 @@ public:
             case 0:
                 return 0.0;
             case 1:
-                return theRovers.front().Theta();
+                return centerPointRover.Theta();
             default:
                 return atan2(y_part/roverCount, x_part/roverCount);
         }
@@ -298,8 +295,8 @@ void mobilityStateMachine(const ros::TimerEvent &)
 
             // calculate the adjusted angular velocity we want to use
             float current_theta = current_location.theta;
-            //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(current_location.x, current_location.y);
-            float adjust_to_theta = all_rovers.calculateAverageBearing();
+            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
+            //float adjust_to_theta = all_rovers.calculateAverageBearing();
             float tuning_constant = 0.07;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
@@ -460,7 +457,7 @@ void poseHandler(const std_msgs::String::ConstPtr& message)
     // now publish the local headings
     std_msgs::String localAverageHeading_msg;
     std::stringstream localInfo;
-    localInfo << "Local Average Heading (" << name << "): " << all_rovers.calculateAverageNeighborBearing(x, y);
+    localInfo << "Local Average Heading (" << name << "): " << all_rovers.calculateAverageNeighborBearing(Rover(name, x, y, theta));
     localAverageHeading_msg.data = localInfo.str();
     local_average_heading_publisher.publish(localAverageHeading_msg);
 }
