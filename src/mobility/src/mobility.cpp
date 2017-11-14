@@ -52,6 +52,14 @@ public:
         Pose(p);
     }
 
+    // operator overloads
+    bool operator==(const Rover& compRover) const {
+        return this->Name() == compRover.Name();
+    }
+    bool operator!=(const Rover& compRover) const {
+        return this->Name() != compRover.Name();
+    }
+
     // input functions
     void X(float x) {location.x = x;}
     void Y(float y) {location.y = y;}
@@ -151,6 +159,25 @@ public:
             default:
                 return atan2(y_part/roverCount, x_part/roverCount);
         }
+    }
+
+    float calculateAverageNeighborBearing2(const Rover& centerPointRover) {
+        int roverCount = 0;
+        float x_part = 0.0;
+        float y_part = 0.0;
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if (centerPointRover != (*currentRover) && centerPointRover.isRoverClose((*currentRover), 2.0)) {
+                x_part += centerPointRover.X() - (*currentRover).X();
+                y_part += centerPointRover.Y() - (*currentRover).Y();
+                roverCount++;
+            }
+        }
+
+        if (roverCount < 1) {
+            return centerPointRover.Theta();
+        }
+
+        return atan2((y_part/roverCount) - centerPointRover.Y(), (x_part/roverCount) - centerPointRover.X());
     }
 
 private:
@@ -295,14 +322,16 @@ void mobilityStateMachine(const ros::TimerEvent &)
 
             // calculate the adjusted angular velocity we want to use
             float current_theta = current_location.theta;
-            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
+            //float tuning_constant = 0.07;
+            //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
             //float adjust_to_theta = all_rovers.calculateAverageBearing();
-            float tuning_constant = 0.07;
+            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing2(Rover(rover_name, current_location));
+            float tuning_constant = 0.3;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
             // now use the new angle and turn off forward motion
             angular_velocity = adjusted_angular_velocity;
-            linear_velocity = 0.0;
+            linear_velocity = 0.05;
             setVelocity(linear_velocity, angular_velocity);
             break;
         }
