@@ -167,8 +167,8 @@ public:
         float y_part = 0.0;
         for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
             if (centerPointRover != (*currentRover) && centerPointRover.isRoverClose((*currentRover), 2.0)) {
-                x_part += centerPointRover.X() - (*currentRover).X();
-                y_part += centerPointRover.Y() - (*currentRover).Y();
+                x_part += (*currentRover).X() - centerPointRover.X();
+                y_part += (*currentRover).Y() - centerPointRover.Y();
                 roverCount++;
             }
         }
@@ -177,7 +177,7 @@ public:
             return centerPointRover.Theta();
         }
 
-        return atan2((y_part/roverCount) - centerPointRover.Y(), (x_part/roverCount) - centerPointRover.X());
+        return atan2((y_part/roverCount) + centerPointRover.Y(), (x_part/roverCount) + centerPointRover.X());
     }
 
 private:
@@ -326,7 +326,7 @@ void mobilityStateMachine(const ros::TimerEvent &)
             //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
             //float adjust_to_theta = all_rovers.calculateAverageBearing();
             float adjust_to_theta = all_rovers.calculateAverageNeighborBearing2(Rover(rover_name, current_location));
-            float tuning_constant = 0.3;
+            float tuning_constant = 0.5;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
             // now use the new angle and turn off forward motion
