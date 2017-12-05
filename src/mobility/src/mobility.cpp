@@ -33,7 +33,26 @@ using namespace std;
 // Random number generator
 random_numbers::RandomNumberGenerator *rng;
 
+struct W {
+    int myID;
+    int maxID;
+    int leader; // -1 for unknown, 0 for false, 1 for true
+    int round;  // 1 to 6
+};
 
+int msg(struct W w) {
+
+    return 0;
+}
+
+struct W stf(struct W w) {
+    struct W localw;
+    localw.leader = -1;
+    localw.round = 1;
+    localw.maxID = 0;
+    localw.myID = 1;
+    return localw;
+}
 
 string rover_name;
 char host[128];
@@ -328,12 +347,12 @@ void mobilityStateMachine(const ros::TimerEvent &)
             //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
             //float adjust_to_theta = all_rovers.calculateAverageBearing();
             float adjust_to_theta = all_rovers.calculateAverageNeighborBearing2(Rover(rover_name, current_location));
-            float tuning_constant = 0.5;
+            float tuning_constant = 0.1;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
             // now use the new angle and turn off forward motion
             angular_velocity = adjusted_angular_velocity;
-            linear_velocity = 0.05;
+            linear_velocity = 0.02;
             setVelocity(linear_velocity, angular_velocity);
             break;
         }
