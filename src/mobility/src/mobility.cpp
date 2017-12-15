@@ -116,8 +116,17 @@ public:
     }
     inline void addRover(Rover r) { addRover(r.Name(), r.X(), r.Y(), r.Theta()); }
     inline void updateRover(string name, float x, float y, float theta) { addRover(name, x, y, theta); }
+    Rover* getRover(string name) {
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if ((*currentRover).Name() == name) {
+                // found a match
+                return &(*currentRover);
+            }
+        }
+        return NULL;
+    }
 
-    float calculateAverageBearing() {
+    float calculateAverageDirection() {
         // NOTE: this function works almost always, except the case where
         //       all rover thetas cancel each other out.
         //       We are ignoring this case for simplicity sake and it
@@ -144,11 +153,12 @@ public:
         float x_part = 0.0;
         float y_part = 0.0;
         for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
-            if (centerPointRover.isRoverClose((*currentRover), 2.0)) {
+            // use all neighbors
+            //if (centerPointRover.isRoverClose((*currentRover), 2.0)) {
                 x_part += cos((*currentRover).Theta());
                 y_part += sin((*currentRover).Theta());
                 roverCount++;
-            }
+            //}
         }
 
         switch(roverCount) {
@@ -178,6 +188,29 @@ public:
         }
 
         return atan2((y_part/roverCount) + centerPointRover.Y(), (x_part/roverCount) + centerPointRover.X());
+    }
+
+    float calculateSeparation(const Rover& centerPointRover) {
+        // check only very close neighbors and try to steer clear of those.
+        int roverCount = 0;
+        float x_part = 0.0;
+        float y_part = 0.0;
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if (centerPointRover != (*currentRover) && centerPointRover.isRoverClose((*currentRover), 1.0)) {
+                x_part += cos((*currentRover).Theta());
+                y_part += sin((*currentRover).Theta());
+                roverCount++;
+            }
+        }
+
+        switch(roverCount) {
+            case 0:
+                return 0.0;
+            case 1:
+                return centerPointRover.Theta();
+            default:
+                return -atan2(y_part/roverCount, x_part/roverCount);
+        }
     }
 
 private:
@@ -320,18 +353,25 @@ void mobilityStateMachine(const ros::TimerEvent &)
             float angular_velocity = 0.2;
             float linear_velocity = 0.1;
 
+            Rover* currentRover = all_rovers.getRover(rover_name);
+
             // calculate the adjusted angular velocity we want to use
             float current_theta = current_location.theta;
-            //float tuning_constant = 0.07;
-            //float adjust_to_theta = all_rovers.calculateAverageNeighborBearing(Rover(rover_name, current_location));
-            //float adjust_to_theta = all_rovers.calculateAverageBearing();
-            float adjust_to_theta = all_rovers.calculateAverageNeighborBearing2(Rover(rover_name, current_location));
-            float tuning_constant = 0.5;
+            float alignment_theta = all_rovers.calculateAverageDirection();
+            float cohesion_theta = all_rovers.calculateAverageNeighborBearing(*currentRover);
+            float separation_theta = all_rovers.calculateSeparation(*currentRover);
+
+            // make a new adjusted theta
+            float x_part = (cos(alignment_theta) + cos(cohesion_theta) + cos(separation_theta))/3;
+            float y_part = (sin(alignment_theta) + sin(cohesion_theta) + sin(separation_theta))/3;
+
+            float adjust_to_theta = atan2(y_part, x_part);
+            float tuning_constant = 0.8;
             float adjusted_angular_velocity = tuning_constant * (adjust_to_theta - current_theta);
 
             // now use the new angle and turn off forward motion
             angular_velocity = adjusted_angular_velocity;
-            linear_velocity = 0.05;
+            linear_velocity = 0.02;
             setVelocity(linear_velocity, angular_velocity);
             break;
         }
@@ -479,7 +519,7 @@ void poseHandler(const std_msgs::String::ConstPtr& message)
     // now publish the global heading
     std_msgs::String globalAverageHeading_msg;
     std::stringstream globalInfo;
-    globalInfo << "Global Average Heading:" << all_rovers.calculateAverageBearing();
+    globalInfo << "Global Average Heading:" << all_rovers.calculateAverageDirection();
     globalAverageHeading_msg.data = globalInfo.str();
     global_average_heading_publisher.publish(globalAverageHeading_msg);
 
