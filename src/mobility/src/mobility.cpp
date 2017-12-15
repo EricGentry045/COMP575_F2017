@@ -33,40 +33,71 @@ using namespace std;
 // Random number generator
 random_numbers::RandomNumberGenerator *rng;
 
-struct W {
-    int myID;
-    int maxID;
-    int leader; // -1 for unknown, 0 for false, 1 for true
-    int round;  // 1 to 6
-};
-
-int msg(struct W w) {
-
-    return 0;
-}
-
-struct W stf(struct W w) {
-    struct W localw;
-    localw.leader = -1;
-    localw.round = 1;
-    localw.maxID = 0;
-    localw.myID = 1;
-    return localw;
-}
-
 string rover_name;
 char host[128];
 bool is_published_name = false;
 
+// Floodmax stuff
+const int FLOODMAX_ROUNDS = 6;
+/*
+static int currentRound = 0;
+struct FloodmaxProcessorState {
+    string myName;
+    int myID;
+    int maxID;
+    int leader; // -1 for unknown, 0 for false, 1 for true
+    int round;  // 0 to 6
+    // round methods
+    bool isLastRound() { return round==FLOODMAX_ROUNDS; }
+    void incrementRound() { round++; }
+
+    // leader methods
+    void setLeader(bool isLeader=true) { leader = isLeader ? 1 : 0; }
+    // debugging
+    void printPS() {
+        ROS_INFO_STREAM("ERIC: " << myName << " ID:" << myID << " maxID:" << maxID << " leader:" << leader << " round:"
+                                 << round);
+    }
+};
+*/
+
+// Rover
 class Rover
 {
 public:
+    // flood max stuff
+    static int currentRound;
+    int myID;
+    int maxID;
+    int leader; // -1 for unknown, 0 for false, 1 for true
+    int round;  // 0 to 6
+    bool isLastRound() { return round==FLOODMAX_ROUNDS; }
+    void incrementRound() { round++; }
+    void incrementCurrentRound() { this->currentRound++; }
+    // leader methods
+    void setLeader(bool isLeader=true) { leader = isLeader ? 1 : 0; }
+    // debugging
+    void printPS() {
+        ROS_INFO_STREAM("ERIC: " << name << " ID:" << myID << " maxID:" << maxID << " leader:" << leader << " round:"
+                                 << round);
+    }
+
+
     Rover(string roverName, float x, float y, float theta) {
         // constructor 1
         name = roverName;
         X(x);
         Y(y);
         Theta(theta);
+        if (roverName == "achilles")      { myID = 1; }
+        else if (roverName == "aeneas")   { myID = 2; }
+        else if (roverName == "ajax")     { myID = 3; }
+        else if (roverName == "diomedes") { myID = 4; }
+        else if (roverName == "hector")   { myID = 5; }
+        else if (roverName == "paris")    { myID = 6; }
+        maxID = 0;
+        leader = -1;
+        round = 0;
     }
     Rover(string roverName, pose p) {
         name = roverName;
@@ -111,6 +142,7 @@ private:
     string name;
     pose location;
 };
+int Rover::currentRound = 0;
 
 class Rovers
 {
@@ -137,6 +169,15 @@ public:
     }
     inline void addRover(Rover r) { addRover(r.Name(), r.X(), r.Y(), r.Theta()); }
     inline void updateRover(string name, float x, float y, float theta) { addRover(name, x, y, theta); }
+    Rover* getRover(string name) {
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if ((*currentRover).Name() == name) {
+                // found a match!
+                return &(*currentRover);
+            }
+        }
+        return NULL;
+    }
 
     float calculateAverageBearing() {
         // NOTE: this function works almost always, except the case where
@@ -201,6 +242,31 @@ public:
         return atan2((y_part/roverCount) + centerPointRover.Y(), (x_part/roverCount) + centerPointRover.X());
     }
 
+    void incrementRound(string roverName) {
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if ((*currentRover).Name() == roverName ) {
+                ROS_INFO_STREAM("ERIC: incrementing round for: " << roverName);
+                (*currentRover).incrementRound();
+                break;
+            }
+        }
+
+        // check all rounds to see if the round is done
+        bool roundOver = true;
+        for (std::vector<Rover>::iterator currentRover = theRovers.begin(); currentRover != theRovers.end(); ++currentRover) {
+            if ((*currentRover).round == (*currentRover).currentRound ) {
+                ROS_INFO_STREAM("ERIC: found same round: " << (*currentRover).Name() << " " << (*currentRover).round);
+                roundOver = false;
+            }
+        }
+
+        if (roundOver) {
+            theRovers.front().incrementCurrentRound();
+            ROS_INFO_STREAM("ERIC: incrementing currentRound: ");
+        }
+
+    }
+
 private:
     std::vector<Rover> theRovers;
 } all_rovers;
@@ -231,6 +297,7 @@ ros::Publisher posePublish;
 ros::Publisher debug_publisher;
 ros::Publisher global_average_heading_publisher;
 ros::Publisher local_average_heading_publisher;
+ros::Publisher floodmax_msg_publisher;
 
 //Subscribers
 ros::Subscriber joySubscriber;
@@ -243,6 +310,8 @@ ros::Subscriber messageSubscriber;
 ros::Subscriber poseSubscriber;
 ros::Subscriber globalAverageHeadingSubscriber;
 ros::Subscriber localAverageHeadingSubscriber;
+ros::Subscriber floodmaxSubscriber;
+
 
 //Timers
 ros::Timer stateMachineTimer;
@@ -268,6 +337,7 @@ void messageHandler(const std_msgs::String::ConstPtr &message);
 void poseHandler(const std_msgs::String::ConstPtr &message);
 void globalAverageHeadingHandler(const std_msgs::String::ConstPtr &message);
 void localAverageHeadingHandler(const std_msgs::String::ConstPtr &message);
+void floodmaxHandler(const std_msgs::String::ConstPtr &message);
 
 int main(int argc, char **argv)
 {
@@ -300,6 +370,7 @@ int main(int argc, char **argv)
     poseSubscriber = mNH.subscribe(("poses"), 10, poseHandler);
     globalAverageHeadingSubscriber = mNH.subscribe(("globalAverageHeading"), 10, globalAverageHeadingHandler);
     localAverageHeadingSubscriber = mNH.subscribe(("localAverageHeading"), 10, localAverageHeadingHandler);
+    floodmaxSubscriber = mNH.subscribe(("floodmax"), 10, floodmaxHandler);
 
     status_publisher = mNH.advertise<std_msgs::String>((rover_name + "/status"), 1, true);
     velocityPublish = mNH.advertise<geometry_msgs::Twist>((rover_name + "/velocity"), 10);
@@ -315,6 +386,7 @@ int main(int argc, char **argv)
     posePublish = mNH.advertise<std_msgs::String>(("poses"), 10 , true);
     global_average_heading_publisher = mNH.advertise<std_msgs::String>(("globalAverageHeading"), 10 , true);
     local_average_heading_publisher = mNH.advertise<std_msgs::String>(("localAverageHeading"), 10 , true);
+    floodmax_msg_publisher = mNH.advertise<std_msgs::UInt8>(("floodmax"), 10);
 
     ros::spin();
     return EXIT_SUCCESS;
@@ -354,6 +426,21 @@ void mobilityStateMachine(const ros::TimerEvent &)
             angular_velocity = adjusted_angular_velocity;
             linear_velocity = 0.02;
             setVelocity(linear_velocity, angular_velocity);
+
+            Rover* currentRover = all_rovers.getRover(rover_name);
+            if (currentRover) {
+                // check for time
+                int time_diff = (int)(ros::Time::now().toSec() - time_stamp_transition_to_auto);
+                if ((time_diff % 60 == 0) && (currentRover->round == currentRover->currentRound)) {
+                    std_msgs::String floodmax_msg;
+                    std::stringstream floodmax_info;
+                    floodmax_info << rover_name << ", ";
+                    floodmax_info << currentRover->myID;
+                    floodmax_msg.data = floodmax_info.str();
+                    ROS_INFO_STREAM("ERIC: sending info from " << rover_name);
+                    floodmax_msg_publisher.publish(floodmax_msg);
+                }
+            }
             break;
         }
         default:
@@ -518,4 +605,48 @@ void globalAverageHeadingHandler(const std_msgs::String::ConstPtr& message)
 
 void localAverageHeadingHandler(const std_msgs::String::ConstPtr& message)
 {
+}
+
+int msg(Rover* currentRover) {
+    // check round
+    if (currentRover->round <= FLOODMAX_ROUNDS) {
+        return currentRover->maxID;
+    } else {
+        return 0;
+    }
+}
+
+Rover* stf(Rover* currentRover, int y) {
+    // figure out new max id
+    if (y > currentRover->maxID) {
+        currentRover->maxID = y;
+    }
+
+    // check round
+    if (currentRover->isLastRound()) {
+        if (currentRover->maxID = currentRover->myID) {
+            currentRover->setLeader();
+            ros::shutdown();  // end the program
+        } else {
+            currentRover->setLeader(false);
+        }
+    }
+
+    // increment the round
+    currentRover->incrementRound();
+
+    return currentRover;
+}
+
+void floodmaxHandler(const std_msgs::String::ConstPtr& message)
+{
+    // get the data
+    char name[32];
+    int id = 0;
+    sscanf(message->data.c_str(), "%31s, %d", name, &id);
+
+    // send the msg
+    Rover* currentRover = all_rovers.getRover(name);
+    msg(currentRover);
+    currentRover = stf(currentRover, id);
 }
